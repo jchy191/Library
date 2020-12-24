@@ -1,10 +1,11 @@
-const { ApolloServer, gql, UserInputError } = require('apollo-server');
+const { ApolloServer, gql, UserInputError, AuthenticationError } = require('apollo-server');
 const mongoose = require ('mongoose');
 const Book = require('./models/Book.js');
 const Author = require('./models/Author.js');
 require('dotenv').config();
 const { v1: uuid } = require('uuid');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const User = require('./models/User.js');
 
 mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true, useFindAndModify: false, useCreateIndex: true })
@@ -57,6 +58,7 @@ const typeDefs = gql`
     ): Author,
     createUser(
       username: String!,
+      password: String!,
       favouriteGenre: String!
     ): User,
     login(
@@ -95,8 +97,12 @@ const resolvers = {
     me: (root, args, context) => context.currentUser
   },
   Mutation: {
-    addBook: async (root, args) => {
+    addBook: async (root, args, context) => {
       let author = await Author.findOne({ name: args.author });
+      const currentUser = context.currentUser;
+      if (!currentUser) {
+        throw new AuthenticationError('Not Authenticated');
+      }
       if (!author) {
         author = new Author({ name: args.author, id: uuid() });
         try {
@@ -116,7 +122,11 @@ const resolvers = {
         });
       }
     },
-    editAuthor: async (root, args) => {
+    editAuthor: async (root, args, context) => {
+      const currentUser = context.currentUser;
+      if (!currentUser) {
+        throw new AuthenticationError('Not Authenticated');
+      }
       let authorToEdit;
       try {
         authorToEdit = await Author.findOneAndUpdate({ name: args.name },
@@ -130,8 +140,14 @@ const resolvers = {
       if (!authorToEdit) return null;
       return authorToEdit;
     },
-    createUser: (root, args) => {
-      const user = new User ({ username: args.username, favouriteGenre: args.favouriteGenre });
+    createUser: async (root, args) => {
+      const saltRounds = 14;
+      const passwordHash = await bcrypt.hash(args.password, saltRounds);
+      const user = new User ({
+        username: args.username,
+        passwordHash,
+        favouriteGenre: args.favouriteGenre
+      });
       return user.save()
         .catch(error => {
           throw new UserInputError(error.message, {
@@ -141,7 +157,10 @@ const resolvers = {
     },
     login: async (root, args) => {
       const user = await User.findOne({ username: args.username });
-      if ( !user || args.password !== 'secret' ) {
+      const passwordCorrect = user === null
+        ? false
+        : await bcrypt.compare(args.password, user.passwordHash);
+      if ( !user || !passwordCorrect ) {
         throw new UserInputError('Wrong credentials');
       }
       const userForToken = {
