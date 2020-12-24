@@ -1,4 +1,4 @@
-const mongoose = require('mongoose')
+const mongoose = require('mongoose');
 
 const schema = new mongoose.Schema({
   title: {
@@ -15,8 +15,8 @@ const schema = new mongoose.Schema({
     ref: 'Author'
   },
   genres: [
-    { type: String}
+    { type: String }
   ]
-})
+});
 
-module.exports = mongoose.model('Book', schema)
+module.exports = mongoose.model('Book', schema);
